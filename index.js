@@ -37,7 +37,27 @@ app.post('/jobs', async(req, res) => {
   res.send(addValues);
 });
 app.get('/jobs', async(req, res) => {
-      const cursor = jobs.find({});
+  const query={}
+  console.log(req.query);
+  if(req.query){
+   if(req.query.jobType){
+    query.jobType=req.query.jobType
+   }
+    if(req.query.isRemote){
+    query.isRemote=req.query.isRemote==='true'
+   }
+    if(req.query.category){
+    query.category=req.query.category
+   }
+  }
+  if (req.query.search) {
+    query.$or = [
+      { title: { $regex: req.query.search, $options: 'i' } },
+      { company: { $regex: req.query.search,$options: 'i' } },
+      { responsibilities: { $regex: req.query.search, $options: 'i' } }
+    ];
+  }
+      const cursor = jobs.find(query);
   const allValues = await cursor.toArray();
   res.send(allValues);
 });
