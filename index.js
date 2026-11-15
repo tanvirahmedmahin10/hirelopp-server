@@ -2,7 +2,9 @@ import express from 'express';
 import cors from 'cors'
 import 'dotenv/config'
 import { MongoClient, ObjectId } from 'mongodb';
+import Stripe from 'stripe';
 
+const stripe=new Stripe(process.env.STRIPE_SECRET_KEY)
 const app = express();
 const port = 8000;
 app.use(cors())
@@ -26,21 +28,50 @@ const connectedClient=await connectToMongoDB()
      const allUsers = database.collection("user");
      const jobs=database.collection("job")
      const applications=database.collection('applications')
+     const payments=database.collection('payments')
  
 app.get('/all', async(req, res) => {
       const cursor = allUsers.find({});
   const allValues = await cursor.toArray();
   res.send(allValues);
 });
+app.get('/all/:id/premium',async(req,res)=>{
+  const id=req.params.id
+  const query={_id:new ObjectId(id)}
+  const result=await allUsers.findOne(query,{projection:{premium:1}})
+  res.send(result)
+})
+app.patch('/all/:id/role',async(req,res)=>{
+  const id=req.params.id
+  const query={_id:new ObjectId(id)}
+   const updatedDoc = { $set: { role: req.body.role } }
+  const result=await allUsers.updateOne(query,updatedDoc)
+  res.send(result)
+})
+
 app.get('/applications', async(req, res) => {
   const query={}
   if(req.query.applicantId){
-    query.userId=req.query.applicantId
+    query.applicantId=req.query.applicantId
   }
+   if(req.query.jobId){
+    query.jobId=req.query.jobId
+  }
+
       const cursor = applications.find(query);
   const allValues = await cursor.toArray();
   res.send(allValues);
 });
+app.patch('/applications/:id',async(req,res)=>{
+  const id=req.params.id
+  const query={_id:new ObjectId(id)}
+  const updatedDoc={
+    $set:{
+      status:req.body.status
+    }
+  }
+  const result=await applications.updateOne(query,updatedDoc)
+  res.send(result)})
 app.get('/applications/count', async(req, res) => {
   const query={}
   if(req.query.applicantId){
@@ -73,6 +104,9 @@ app.get('/jobs', async(req, res) => {
     if(req.query.category){
     query.category=req.query.category
    }
+   if(req.query.recruiterId){
+    query.recruiterId=req.query.recruiterId
+   }
   }
   if (req.query.search) {
     query.$or = [
@@ -91,7 +125,40 @@ app.get('/jobs/:id',async(req,res)=>{
   const result=await jobs.findOne(query)
   res.send(result)
 })
-app.del
+
+
+app.post('/payments/checkVerify',async(req,res)=>{
+  const {sessionId}=req.body
+  const {
+    status,
+    customer_email,
+   metadata,
+   payment_intent,
+   payment_status
+  }=await stripe.checkout.sessions.retrieve(sessionId)
+  if (status === 'complete'&&payment_status==='paid'){
+    const sessionQuery={sessionId}
+    const existingPayment=await payments.findOne(sessionQuery)
+    if(existingPayment){
+      return res.send({success:false,msg:'already paid'})
+    }
+const payment={
+    sessionId,
+     status,
+    customer_email,
+   payment_intent,
+   payment_status,
+   userId:metadata.userId
+  }
+  const result=await payments.insertOne(payment)
+  const query={_id:new ObjectId(metadata.userId)}
+ const updatedDoc = { $set: { premium: true } }
+  const updatedResult=await allUsers.updateOne(query,updatedDoc)
+  res.send({success:true,result,updatedResult})
+  return
+  }
+  res.send({mes:'payment failed'})
+})
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);
 });
